@@ -311,7 +311,7 @@ Extraction Rules:
   - "find_peak": If the user wants the maximum/minimum or peak (e.g. "hottest spot in measurement 4", "what is the lowest strain in test 1?", "peak temperature").
   - "metadata_info": If the user asks about specifications, location, interrogator model, etc. (e.g. "sensor info", "specifications", "where is it installed?").
   - "help": If they ask for help or how to use the bot.
-- "measurement_index": Integer from 0 to 7. If they say "measurement 3" or "test 3", use 3. If they say "first scan", use 0. If they say "last", "latest", or "recent", use "latest". If not specified, default to "latest".
+- "measurement_index": Integer from 0 to 7. Words like "measurement", "scan", "test", "time", "tempo", "teste", "medição" all refer to the measurement index (0-7). E.g. "time 3" or "tempo 3" maps to 3. If they say "first scan" or "first time", use 0. If they say "last", "latest", or "recent", use "latest". If not specified, default to "latest".
 - "distance_m": Convert the distance to a float representing meters. E.g., "1.5km" or "1.5 kilometers" should be 1500.0.
 - "peak_type": "max" for maximum/highest/peak/hottest, "min" for minimum/lowest/coldest.
 
@@ -352,9 +352,9 @@ Examples:
             analysis_type = "metadata_info"
             
         # 2. Measurement index
-        med_match = re.search(r'(?:measurement|medi[cç]ao|teste|test|scan)\s*(\d+)', query)
+        med_match = re.search(r'\b(?:measurement|medi[cç]ao|teste|test|scan|tempo|time)\b\s*(\d+)|\bt\s*(\d+)|\bt(\d+)\b', query)
         if med_match:
-            measurement_index = int(med_match.group(1))
+            measurement_index = int(next(g for g in med_match.groups() if g is not None))
         elif any(w in query for w in ["first", "initial", "primeir", "inicial"]):
             measurement_index = 0
         elif any(w in query for w in ["last", "latest", "recent", "ultim", "últim", "recente"]):
@@ -376,7 +376,7 @@ Examples:
                 
         # 4. Analysis type & peak type
         if any(w in query for w in ["grafico", "gráfico", "plot", "plote", "plotar", "curve", "curva", "profile", "perfil"]):
-            if any(w in query for w in ["history", "historico", "histórico", "time", "tempo", "evoluc", "evoluç"]):
+            if any(w in query for w in ["history", "historico", "histórico", "evoluc", "evoluç"]) or (any(w in query for w in ["time", "tempo"]) and measurement_index == "latest"):
                 analysis_type = "plot_history"
             else:
                 analysis_type = "plot_profile"
@@ -387,7 +387,7 @@ Examples:
             analysis_type = "find_peak"
             peak_type = "min"
         elif distance_m is not None:
-            if any(w in query for w in ["history", "historico", "histórico", "time", "tempo", "evoluc", "evoluç"]):
+            if any(w in query for w in ["history", "historico", "histórico", "evoluc", "evoluç"]) or (any(w in query for w in ["time", "tempo"]) and measurement_index == "latest"):
                 analysis_type = "plot_history"
             else:
                 analysis_type = "value_at_distance"
