@@ -493,7 +493,22 @@ with st.sidebar:
     ollama_model = None
     
     if llm_provider == "Google Gemini":
-        api_key = st.text_input("Gemini API Key", type="password", help="Generate your API Key at Google AI Studio.")
+        # Check Streamlit secrets or environment variables for pre-configuration
+        default_key = ""
+        if "GEMINI_API_KEY" in st.secrets:
+            default_key = st.secrets["GEMINI_API_KEY"]
+        elif "gemini_api_key" in st.secrets:
+            default_key = st.secrets["gemini_api_key"]
+        else:
+            import os
+            default_key = os.environ.get("GEMINI_API_KEY", "")
+            
+        api_key = st.text_input(
+            "Gemini API Key", 
+            value=default_key, 
+            type="password", 
+            help="Pre-configured via secrets or enter your API Key from Google AI Studio."
+        )
         if not api_key:
             st.warning("⚠️ Enter your API Key to enable Gemini.")
     elif llm_provider == "Ollama (Local)":
