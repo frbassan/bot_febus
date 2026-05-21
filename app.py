@@ -8,8 +8,26 @@ import requests
 from datetime import datetime, timedelta
 import google.generativeai as genai
 
-# --- CONFIGURAÇÕES E ESTILOS ---
-HDF5_FILE_PATH = "mock_febus_data_10k_rotating.h5"
+# --- CONFIGURAÇÕES E UPLOAD ---
+DEFAULT_HDF5_PATH = "mock_febus_data_10k_rotating.h5"
+HDF5_FILE_PATH = DEFAULT_HDF5_PATH
+
+# Exibe o Uploader de arquivos na barra lateral no topo
+st.sidebar.markdown("### 📁 Carregar Novo Arquivo")
+uploaded_file = st.sidebar.file_uploader(
+    "Selecione um arquivo HDF5 (.h5)", 
+    type=["h5", "hdf5"],
+    help="Envie seu arquivo de dados DTSS para consulta."
+)
+
+if uploaded_file is not None:
+    # Salva o arquivo temporariamente usando o mesmo nome para evitar encher o disco
+    HDF5_FILE_PATH = f"uploaded_{uploaded_file.name}"
+    try:
+        with open(HDF5_FILE_PATH, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+    except Exception as e:
+        st.sidebar.error(f"Erro ao salvar arquivo: {e}")
 
 st.set_page_config(
     page_title="FEBUS DTSS Intelligent Assistant",
@@ -109,13 +127,18 @@ st.markdown("""
 
 
 # --- PERSISTÊNCIA E LEITURA DO ARQUIVO HDF5 ---
-@st.cache_resource
 def get_sensor_metadata(file_path):
     """Carrega os metadados globais e dimensões do HDF5."""
     try:
         with h5py.File(file_path, 'r') as f:
+            # Validação da estrutura esperada do DTSS
+            if "distances" not in f or "extractedTemperature" not in f or "extractedDeformation" not in f:
+                return {
+                    "error": "O arquivo HDF5 não possui a estrutura esperada (datasets 'distances', 'extractedTemperature' e 'extractedDeformation')."
+                }
+            
             distances = f['distances'][:]
-            num_measurements = f['extractedTemperature'].shape[0] if 'extractedTemperature' in f else 0
+            num_measurements = f['extractedTemperature'].shape[0]
             
             # Carrega atributos, com fallbacks caso não existam
             interrogator = f.attrs.get("interrogator_model")
@@ -149,9 +172,10 @@ def get_sensor_metadata(file_path):
 metadata = get_sensor_metadata(HDF5_FILE_PATH)
 
 if "error" in metadata:
-    st.error(f"Erro crítico ao acessar o arquivo HDF5 '{HDF5_FILE_PATH}': {metadata['error']}")
-    st.info("Certifique-se de que o arquivo HDF5 está na pasta raiz do projeto.")
+    st.sidebar.error(f"Erro no arquivo: {metadata['error']}")
+    st.info("Por favor, selecione um arquivo HDF5 compatível com a estrutura DTSS (contendo 'distances', 'extractedTemperature' e 'extractedDeformation').")
     st.stop()
+
 
 
 # --- LÓGICA DE QUERIES NO HDF5 ---
