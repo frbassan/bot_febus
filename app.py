@@ -495,11 +495,15 @@ with st.sidebar:
     if llm_provider == "Google Gemini":
         # Check Streamlit secrets or environment variables for pre-configuration
         default_key = ""
-        if "GEMINI_API_KEY" in st.secrets:
-            default_key = st.secrets["GEMINI_API_KEY"]
-        elif "gemini_api_key" in st.secrets:
-            default_key = st.secrets["gemini_api_key"]
-        else:
+        try:
+            if "GEMINI_API_KEY" in st.secrets:
+                default_key = st.secrets["GEMINI_API_KEY"]
+            elif "gemini_api_key" in st.secrets:
+                default_key = st.secrets["gemini_api_key"]
+        except Exception:
+            pass
+            
+        if not default_key:
             import os
             default_key = os.environ.get("GEMINI_API_KEY", "")
             
