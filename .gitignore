@@ -104,3 +104,7 @@ venv.bak/
 
 # Streamlit secrets (contains private keys/credentials)
 .streamlit/secrets.toml
+
+# HDF5 data files
+*.h5
+*.hdf5
