@@ -2,6 +2,63 @@
 
 An interactive, high-performance Streamlit dashboard and AI-powered assistant designed to explore, visualize, and query Distributed Temperature and Strain Sensing (DTSS) data stored in HDF5 format.
 
+## 📊 Project Block Diagram
+
+The diagram below outlines the data flow, digital signal processing (DSP) pipeline, layout presentation, and AI Assistant subsystem:
+
+```mermaid
+flowchart TD
+    %% Define Styles %%
+    classDef datasource fill:#e1f5fe,stroke:#039be5,stroke-width:2px,color:#01579b;
+    classDef processing fill:#fbe9e7,stroke:#ff5722,stroke-width:2px,color:#bf360c;
+    classDef ui fill:#ede7f6,stroke:#7e57c2,stroke-width:2px,color:#311b92;
+    classDef ai fill:#e8f5e9,stroke:#4caf50,stroke-width:2px,color:#1b5e20;
+
+    %% Data Inputs %%
+    subgraph DataSources["📁 Data Inputs"]
+        A["Real FEBUS HDF5 File"]:::datasource
+        B["generate_tsb_febus.py<br>(Physics Simulator)"]:::datasource -.-> C["Simulated HDF5 File (*.h5)"]:::datasource
+    end
+
+    %% Streamlit Core App %%
+    subgraph CombinedApp["🧠 combined_app.py (Streamlit Application)"]
+        %% File Loading & Processing %%
+        C & A --> D["File Uploader & Metadata Loader"]:::processing
+        D --> E["Data Slicing & Downsampling (< 1500 pts)"]:::processing
+        
+        %% DSP Filters %%
+        subgraph DSPOptions["〰️ Digital Signal Processing (DSP)"]
+            E --> F["Moving Avg / Savitzky-Golay"]:::processing
+            E --> G["Butterworth Filter (Low/High-Pass)"]:::processing
+            E --> H["Median Spike Filter"]:::processing
+        end
+
+        %% Tabs Layout %%
+        subgraph VisualTabs["🖥️ Dashboard Visualizations (Plotly)"]
+            F & G & H --> T1["Tab 1: Metadata & Structure Explorer"]:::ui
+            F & G & H --> T2["Tabs 2 & 3: 2D Spatial Profiles"]:::ui
+            F & G & H --> T3["Tabs 4 & 5: 2D Time-Series Evolution"]:::ui
+            F & G & H --> T4["Tabs 6 & 7: 3D Surface Topography"]:::ui
+        end
+
+        %% AI Assistant Subsystem %%
+        subgraph AIAssistant["🤖 Intelligent Assistant Subsystem (Tab 8)"]
+            T5["Chat Interface & Interactive Viewer"]:::ui
+            T5 -->|User Query| IE["Intent Extractor"]:::ai
+            
+            subgraph AIEngine["AI Parsing Options"]
+                IE -->|Option 1| IE1["Google Gemini API"]:::ai
+                IE -->|Option 2| IE2["Ollama Local LLM"]:::ai
+                IE -->|Option 3| IE3["Rules-based Regex Parser"]:::ai
+            end
+            
+            IE1 & IE2 & IE3 -->|Structured JSON Query| QE["HDF5 Query Core<br>(LlmBotCore)"]:::processing
+            QE -->|Retrieved Data| RG["NL Response Generator<br>(Gemini / Ollama / Rules)"]:::ai
+            RG -->|Markdown Explanation| T5
+        end
+    end
+```
+
 ---
 
 ## 🚀 Key Features
