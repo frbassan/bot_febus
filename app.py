@@ -10,7 +10,7 @@ import google.generativeai as genai
 
 # --- CONFIGURATION AND UPLOAD ---
 import os
-DEFAULT_HDF5_PATH = "mock_febus_data_10k.h5" if os.path.exists("mock_febus_data_10k.h5") else ("mock_febus_data.h5" if os.path.exists("mock_febus_data.h5") else "mock_febus_data_10k_rotating.h5")
+DEFAULT_HDF5_PATH = "Simulated_FiberTest_TSB_2km_noise_1_5.h5"
 HDF5_FILE_PATH = DEFAULT_HDF5_PATH
 
 # Render file uploader in sidebar
@@ -133,13 +133,13 @@ def get_sensor_metadata(file_path):
     try:
         with h5py.File(file_path, 'r') as f:
             # Validate structure
-            if "distances" not in f or "extractedTemperature" not in f or "extractedDeformation" not in f:
+            if "distances" not in f or "temp_data" not in f or "strain_data" not in f:
                 return {
-                    "error": "The HDF5 file does not have the expected structure (datasets 'distances', 'extractedTemperature', and 'extractedDeformation')."
+                    "error": "The HDF5 file does not have the expected structure (datasets 'distances', 'temp_data', and 'strain_data')."
                 }
             
             distances = f['distances'][:]
-            num_measurements = f['extractedTemperature'].shape[0]
+            num_measurements = f['temp_data'].shape[0]
             
             # Load attributes with fallbacks
             interrogator = f.attrs.get("interrogator_model")
@@ -208,7 +208,7 @@ metadata = get_sensor_metadata(HDF5_FILE_PATH)
 
 if "error" in metadata:
     st.sidebar.error(f"File Error: {metadata['error']}")
-    st.info("Please select an HDF5 file compatible with the DTSS structure (containing 'distances', 'extractedTemperature', and 'extractedDeformation').")
+    st.info("Please select an HDF5 file compatible with the DTSS structure (containing 'distances', 'temp_data', and 'strain_data').")
     st.stop()
 
 
@@ -219,7 +219,7 @@ class LlmBotCore:
         self.file_path = file_path
         try:
             with h5py.File(self.file_path, 'r') as f:
-                self.num_measurements = f['extractedTemperature'].shape[0]
+                self.num_measurements = f['temp_data'].shape[0]
         except Exception:
             self.num_measurements = 8
 
@@ -281,9 +281,9 @@ class LlmBotCore:
             def_data = None
             
             if quantity in ['temperature', 'both']:
-                temp_data = f['extractedTemperature'][idx_m, :]
+                temp_data = f['temp_data'][idx_m, :]
             if quantity in ['deformation', 'both']:
-                def_data = f['extractedDeformation'][idx_m, :]
+                def_data = f['strain_data'][idx_m, :]
                 
         return distances, temp_data, def_data, idx_m
 
@@ -301,9 +301,9 @@ class LlmBotCore:
             def_val = None
             
             if quantity in ['temperature', 'both']:
-                temp_val = float(f['extractedTemperature'][idx_m, dist_idx])
+                temp_val = float(f['temp_data'][idx_m, dist_idx])
             if quantity in ['deformation', 'both']:
-                def_val = float(f['extractedDeformation'][idx_m, dist_idx])
+                def_val = float(f['strain_data'][idx_m, dist_idx])
                 
         return actual_distance, temp_val, def_val, idx_m
 
@@ -315,14 +315,14 @@ class LlmBotCore:
             
             res = {}
             if quantity in ['temperature', 'both']:
-                data = f['extractedTemperature'][idx_m, :]
+                data = f['temp_data'][idx_m, :]
                 p_idx = np.argmax(data) if peak_type == 'max' else np.argmin(data)
                 res['temp'] = {
                     "value": float(data[p_idx]),
                     "distance": float(distances[p_idx])
                 }
             if quantity in ['deformation', 'both']:
-                data = f['extractedDeformation'][idx_m, :]
+                data = f['strain_data'][idx_m, :]
                 p_idx = np.argmax(data) if peak_type == 'max' else np.argmin(data)
                 res['def'] = {
                     "value": float(data[p_idx]),
@@ -341,9 +341,9 @@ class LlmBotCore:
             def_history = None
             
             if quantity in ['temperature', 'both']:
-                temp_history = [float(x) for x in f['extractedTemperature'][:, dist_idx]]
+                temp_history = [float(x) for x in f['temp_data'][:, dist_idx]]
             if quantity in ['deformation', 'both']:
-                def_history = [float(x) for x in f['extractedDeformation'][:, dist_idx]]
+                def_history = [float(x) for x in f['strain_data'][:, dist_idx]]
                 
         return actual_distance, temp_history, def_history
 
@@ -355,7 +355,7 @@ class LlmBotCore:
             
             res = {}
             if quantity in ['temperature', 'both']:
-                data = f['extractedTemperature'][:, :]
+                data = f['temp_data'][:, :]
                 flat_idx = np.argmax(data) if peak_type == 'max' else np.argmin(data)
                 m_idx, d_idx = np.unravel_index(flat_idx, data.shape)
                 
@@ -368,7 +368,7 @@ class LlmBotCore:
                 }
                 
             if quantity in ['deformation', 'both']:
-                data = f['extractedDeformation'][:, :]
+                data = f['strain_data'][:, :]
                 flat_idx = np.argmax(data) if peak_type == 'max' else np.argmin(data)
                 m_idx, d_idx = np.unravel_index(flat_idx, data.shape)
                 
@@ -565,7 +565,7 @@ Examples:
             }
         }
         try:
-            response = requests.post(url, json=payload, timeout=12)
+            response = requests.post(url, json=payload, timeout=180)
             if response.status_code == 200:
                 raw_text = response.json().get("response", "")
                 return self._parse_json(raw_text)
@@ -630,7 +630,7 @@ Respond directly in markdown (do not output JSON or code blocks unless relevant)
             "options": {"temperature": 0.2}
         }
         try:
-            response = requests.post(url, json=payload, timeout=12)
+            response = requests.post(url, json=payload, timeout=180)
             if response.status_code == 200:
                 return response.json().get("response", "")
         except Exception as e:
@@ -646,7 +646,7 @@ with st.sidebar:
     llm_provider = st.selectbox(
         "LLM Provider",
         ["Rules (Local/Fast)", "Google Gemini", "Ollama (Local)"],
-        index=1,
+        index=2,
         help="Select the AI provider to interpret your questions. Choose 'Rules' for immediate local parser."
     )
     
@@ -795,9 +795,14 @@ with col2:
         """, unsafe_allow_html=True)
         
     y_data = temp_data if q_key == 'temperature' else def_data
+    
+    # Downsample for faster plotting in the UI
+    max_plot_points = 1500
+    step = max(1, len(distances) // max_plot_points)
+    
     df_plot = pd.DataFrame({
-        "Distance (m)": distances,
-        v_qty: y_data
+        "Distance (m)": distances[::step],
+        v_qty: y_data[::step]
     })
     
     color_hex = "#FF4B4B" if q_key == 'temperature' else "#1A73E8"
@@ -939,21 +944,24 @@ with col1:
                     elif analysis_type == "plot_profile":
                         distances, temp_data, def_data, actual_idx = core.query_profile(qty, idx_m)
                         
+                        max_plot_points = 1500
+                        step = max(1, len(distances) // max_plot_points)
+                        
                         if qty == "temperature":
-                            df = pd.DataFrame({"Distance (m)": distances, "Temperature (°C)": temp_data})
+                            df = pd.DataFrame({"Distance (m)": distances[::step], "Temperature (°C)": temp_data[::step]})
                             y_col = "Temperature (°C)"
                             color = "#FF4B4B"
                             desc = f"I generated the **Temperature** profile for **Measurement {actual_idx}**:"
                         elif qty == "deformation":
-                            df = pd.DataFrame({"Distance (m)": distances, "Deformation (µε)": def_data})
+                            df = pd.DataFrame({"Distance (m)": distances[::step], "Deformation (µε)": def_data[::step]})
                             y_col = "Deformation (µε)"
                             color = "#1A73E8"
                             desc = f"I generated the **Deformation** profile for **Measurement {actual_idx}**:"
                         else: # both
                             df = pd.DataFrame({
-                                "Distance (m)": distances, 
-                                "Temperature (°C)": temp_data,
-                                "Deformation (µε)": def_data
+                                "Distance (m)": distances[::step], 
+                                "Temperature (°C)": temp_data[::step],
+                                "Deformation (µε)": def_data[::step]
                             })
                             y_col = ["Temperature (°C)", "Deformation (µε)"]
                             color = ["#FF4B4B", "#1A73E8"]
