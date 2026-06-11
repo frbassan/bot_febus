@@ -119,6 +119,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- HELPER FUNCTIONS ---
+@st.cache_data
 def get_h5_structure(filepath):
     """Reads the H5 file structure and returns groups, datasets, and attributes."""
     from typing import Any
@@ -187,6 +188,7 @@ def parse_slice_string(slice_str):
 
 
 # --- HDF5 FILE READING ---
+@st.cache_data
 def get_sensor_metadata(file_path):
     """Loads global metadata and dimensions from the HDF5 file."""
     try:
@@ -272,14 +274,39 @@ if "error" in metadata:
     st.stop()
 
 
+# --- CACHED DATA LOADING ---
+@st.cache_data
+def load_h5_dataset(file_path, dataset_name):
+    try:
+        with h5py.File(file_path, 'r') as f:
+            if dataset_name in f:
+                return f[dataset_name][:]
+    except Exception:
+        pass
+    return None
+
+@st.cache_data
+def get_cached_profile(file_path, quantity, idx_m):
+    try:
+        with h5py.File(file_path, 'r') as f:
+            distances = f['distances'][:]
+            temp_data = f['temp_data'][idx_m, :] if quantity in ['temperature', 'both'] else None
+            strain_data = f['strain_data'][idx_m, :] if quantity in ['deformation', 'both'] else None
+            return distances, temp_data, strain_data
+    except Exception:
+        return np.array([]), None, None
+
 # --- HDF5 QUERY LOGIC ---
 class LlmBotCore:
     """Core interface for querying raw data from the HDF5 file."""
     def __init__(self, file_path):
         self.file_path = file_path
         try:
-            with h5py.File(self.file_path, 'r') as f:
-                self.num_measurements = f['temp_data'].shape[0]
+            meta = get_sensor_metadata(file_path)
+            if "error" not in meta:
+                self.num_measurements = meta.get("num_measurements", 8)
+            else:
+                self.num_measurements = 8
         except Exception:
             self.num_measurements = 8
 
@@ -301,31 +328,29 @@ class LlmBotCore:
         # If it's a string, it might be a timestamp or datetime query
         if isinstance(index, str):
             try:
-                with h5py.File(self.file_path, 'r') as f:
-                    if 'start_times' in f:
-                        start_times = f['start_times'][:]
-                        
-                        # Parse time/date formats
-                        query_time = None
-                        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%H:%M:%S", "%H:%M", "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M"):
-                            try:
-                                parsed = datetime.strptime(index, fmt)
-                                # Default to base date if only time is queried
-                                if "%Y" not in fmt and "%y" not in fmt:
-                                    parsed = parsed.replace(year=2026, month=1, day=1)
-                                query_time = parsed
-                                break
-                            except ValueError:
-                                continue
-                                
-                        if query_time is not None:
-                            from datetime import timezone
-                            query_time = query_time.replace(tzinfo=timezone.utc)
-                            query_ts = query_time.timestamp()
+                start_times = load_h5_dataset(self.file_path, 'start_times')
+                if start_times is not None:
+                    # Parse time/date formats
+                    query_time = None
+                    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%H:%M:%S", "%H:%M", "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M"):
+                        try:
+                            parsed = datetime.strptime(index, fmt)
+                            # Default to base date if only time is queried
+                            if "%Y" not in fmt and "%y" not in fmt:
+                                parsed = parsed.replace(year=2026, month=1, day=1)
+                            query_time = parsed
+                            break
+                        except ValueError:
+                            continue
                             
-                            # Find index of closest start_time
-                            closest_idx = (np.abs(start_times - query_ts)).argmin()
-                            return int(closest_idx)
+                    if query_time is not None:
+                        from datetime import timezone
+                        query_time = query_time.replace(tzinfo=timezone.utc)
+                        query_ts = query_time.timestamp()
+                        
+                        # Find index of closest start_time
+                        closest_idx = (np.abs(start_times - query_ts)).argmin()
+                        return int(closest_idx)
             except Exception:
                 pass
                 
@@ -333,108 +358,100 @@ class LlmBotCore:
 
     def query_profile(self, quantity, measurement_index):
         """Returns distance array and data for a given measurement index."""
-        with h5py.File(self.file_path, 'r') as f:
-            distances = f['distances'][:]
-            idx_m = self._parse_measurement_index(measurement_index)
-            
-            temp_data = None
-            def_data = None
-            
-            if quantity in ['temperature', 'both']:
-                temp_data = f['temp_data'][idx_m, :]
-            if quantity in ['deformation', 'both']:
-                def_data = f['strain_data'][idx_m, :]
-                
+        idx_m = self._parse_measurement_index(measurement_index)
+        distances, temp_data, def_data = get_cached_profile(self.file_path, quantity, idx_m)
         return distances, temp_data, def_data, idx_m
 
     def query_value_at_distance(self, quantity, measurement_index, target_distance):
         """Finds values closest to the target distance."""
-        with h5py.File(self.file_path, 'r') as f:
-            distances = f['distances'][:]
-            idx_m = self._parse_measurement_index(measurement_index)
+        idx_m = self._parse_measurement_index(measurement_index)
+        distances, temp_data, def_data = get_cached_profile(self.file_path, 'both', idx_m)
+        
+        if len(distances) == 0:
+            return target_distance, None, None, idx_m
             
-            # Find closest distance index
-            dist_idx = (np.abs(distances - target_distance)).argmin()
-            actual_distance = distances[dist_idx]
-            
-            temp_val = None
-            def_val = None
-            
-            if quantity in ['temperature', 'both']:
-                temp_val = float(f['temp_data'][idx_m, dist_idx])
-            if quantity in ['deformation', 'both']:
-                def_val = float(f['strain_data'][idx_m, dist_idx])
-                
+        dist_idx = (np.abs(distances - target_distance)).argmin()
+        actual_distance = float(distances[dist_idx])
+        
+        temp_val = float(temp_data[dist_idx]) if temp_data is not None else None
+        def_val = float(def_data[dist_idx]) if def_data is not None else None
+        
         return actual_distance, temp_val, def_val, idx_m
 
     def query_peak(self, quantity, measurement_index, peak_type='max'):
         """Finds max or min peak values and their spatial locations."""
-        with h5py.File(self.file_path, 'r') as f:
-            distances = f['distances'][:]
-            idx_m = self._parse_measurement_index(measurement_index)
-            
-            res = {}
-            if quantity in ['temperature', 'both']:
-                data = f['temp_data'][idx_m, :]
-                p_idx = np.argmax(data) if peak_type == 'max' else np.argmin(data)
-                res['temp'] = {
-                    "value": float(data[p_idx]),
-                    "distance": float(distances[p_idx])
-                }
-            if quantity in ['deformation', 'both']:
-                data = f['strain_data'][idx_m, :]
-                p_idx = np.argmax(data) if peak_type == 'max' else np.argmin(data)
-                res['def'] = {
-                    "value": float(data[p_idx]),
-                    "distance": float(distances[p_idx])
-                }
+        idx_m = self._parse_measurement_index(measurement_index)
+        distances, temp_data, def_data = get_cached_profile(self.file_path, quantity, idx_m)
+        
+        res = {}
+        if quantity in ['temperature', 'both'] and temp_data is not None and len(temp_data) > 0:
+            p_idx = np.argmax(temp_data) if peak_type == 'max' else np.argmin(temp_data)
+            res['temp'] = {
+                "value": float(temp_data[p_idx]),
+                "distance": float(distances[p_idx])
+            }
+        if quantity in ['deformation', 'both'] and def_data is not None and len(def_data) > 0:
+            p_idx = np.argmax(def_data) if peak_type == 'max' else np.argmin(def_data)
+            res['def'] = {
+                "value": float(def_data[p_idx]),
+                "distance": float(distances[p_idx])
+            }
         return res, idx_m
 
     def query_history(self, quantity, target_distance):
-        """Returns the historical evolution (all 8 measurements) at a fixed distance."""
-        with h5py.File(self.file_path, 'r') as f:
-            distances = f['distances'][:]
-            dist_idx = (np.abs(distances - target_distance)).argmin()
-            actual_distance = distances[dist_idx]
+        """Returns the historical evolution (all measurements) at a fixed distance."""
+        distances = load_h5_dataset(self.file_path, 'distances')
+        if distances is None or len(distances) == 0:
+            return target_distance, None, None
             
-            temp_history = None
-            def_history = None
-            
-            if quantity in ['temperature', 'both']:
-                temp_history = [float(x) for x in f['temp_data'][:, dist_idx]]
-            if quantity in ['deformation', 'both']:
-                def_history = [float(x) for x in f['strain_data'][:, dist_idx]]
+        dist_idx = (np.abs(distances - target_distance)).argmin()
+        actual_distance = float(distances[dist_idx])
+        
+        temp_history = None
+        def_history = None
+        
+        if quantity in ['temperature', 'both']:
+            temp_data_all = load_h5_dataset(self.file_path, 'temp_data')
+            if temp_data_all is not None:
+                temp_history = [float(x) for x in temp_data_all[:, dist_idx]]
+                
+        if quantity in ['deformation', 'both']:
+            strain_data_all = load_h5_dataset(self.file_path, 'strain_data')
+            if strain_data_all is not None:
+                def_history = [float(x) for x in strain_data_all[:, dist_idx]]
                 
         return actual_distance, temp_history, def_history
 
     def query_global_peak(self, quantity, peak_type='max'):
         """Finds the global maximum or minimum value, distance, and measurement index across all measurements."""
-        with h5py.File(self.file_path, 'r') as f:
-            distances = f['distances'][:]
-            start_times = f['start_times'][:] if 'start_times' in f else None
+        distances = load_h5_dataset(self.file_path, 'distances')
+        start_times = load_h5_dataset(self.file_path, 'start_times')
+        
+        if distances is None or len(distances) == 0:
+            return {}
             
-            res = {}
-            if quantity in ['temperature', 'both']:
-                data = f['temp_data'][:, :]
-                flat_idx = np.argmax(data) if peak_type == 'max' else np.argmin(data)
-                m_idx, d_idx = np.unravel_index(flat_idx, data.shape)
-                
+        res = {}
+        if quantity in ['temperature', 'both']:
+            temp_data_all = load_h5_dataset(self.file_path, 'temp_data')
+            if temp_data_all is not None:
+                flat_idx = np.argmax(temp_data_all) if peak_type == 'max' else np.argmin(temp_data_all)
+                m_idx, d_idx = np.unravel_index(flat_idx, temp_data_all.shape)
                 timestamp = float(start_times[m_idx]) if start_times is not None else None
                 res['temp'] = {
-                    "value": float(data[m_idx, d_idx]),
+                    "value": float(temp_data_all[m_idx, d_idx]),
                     "distance": float(distances[d_idx]),
                     "measurement_index": int(m_idx),
                     "timestamp": timestamp
                 }
                 
-            if quantity in ['deformation', 'both']:
-                data = f['strain_data'][:, :]
-                flat_idx = np.argmax(data) if peak_type == 'max' else np.argmin(data)
-                m_idx, d_idx = np.unravel_index(flat_idx, data.shape)
-                
+        if quantity in ['deformation', 'both']:
+            strain_data_all = load_h5_dataset(self.file_path, 'strain_data')
+            if strain_data_all is not None:
+                flat_idx = np.argmax(strain_data_all) if peak_type == 'max' else np.argmin(strain_data_all)
+                m_idx, d_idx = np.unravel_index(flat_idx, strain_data_all.shape)
                 timestamp = float(start_times[m_idx]) if start_times is not None else None
                 res['def'] = {
-                    "value": float(data[m_idx, d_idx]),
+                    "value": float(strain_data_all[m_idx, d_idx]),
                     "distance": float(distances[d_idx]),
                     "measurement_index": int(m_idx),
                     "timestamp": timestamp
@@ -630,7 +647,12 @@ Examples:
                 raw_text = response.json().get("response", "")
                 return self._parse_json(raw_text)
             else:
-                raise Exception(f"Invalid response from Ollama (HTTP Status {response.status_code})")
+                err_msg = ""
+                try:
+                    err_msg = f": {response.json().get('error')}"
+                except:
+                    pass
+                raise Exception(f"Invalid response from Ollama (HTTP Status {response.status_code}){err_msg}")
         except Exception as e:
             raise Exception(f"Error connecting to Ollama at {url}: {e}")
 
@@ -693,6 +715,13 @@ Respond directly in markdown (do not output JSON or code blocks unless relevant)
             response = requests.post(url, json=payload, timeout=180)
             if response.status_code == 200:
                 return response.json().get("response", "")
+            else:
+                err_msg = ""
+                try:
+                    err_msg = f": {response.json().get('error')}"
+                except:
+                    pass
+                return f"*(Ollama Explanation Error (HTTP Status {response.status_code}){err_msg})*"
         except Exception as e:
             return f"*(Ollama Explanation Error: {e})*"
     return None
@@ -721,10 +750,9 @@ def render_2d_analysis_module(struct, section_num, section_title, y_dataset, x_d
             with st.expander(f"X Axis Physical Range ({x_dataset})", expanded=True):
                 x_mapping = None
                 try:
-                    with h5py.File(st.session_state['file_path'], 'r') as f:
-                        if x_dataset in f:
-                            arr = f[x_dataset][:]
-                            if len(arr.shape) == 1: x_mapping = arr
+                    arr = load_h5_dataset(st.session_state['file_path'], x_dataset)
+                    if arr is not None and len(arr.shape) == 1:
+                        x_mapping = arr
                 except: pass
         
                 if x_mapping is not None and len(x_mapping) > 1:
@@ -774,10 +802,9 @@ def render_2d_analysis_module(struct, section_num, section_title, y_dataset, x_d
                             if dim_size > 1:
                                 time_opts = []
                                 try:
-                                    with h5py.File(st.session_state['file_path'], 'r') as f:
-                                        if 'start_times' in f:
-                                            times_raw = f['start_times'][:]
-                                            time_opts = [f"Trace {i+1} ➔ {datetime.fromtimestamp(t).strftime('%d/%m/%y %H:%M')}" for i, t in enumerate(times_raw)]
+                                    times_raw = load_h5_dataset(st.session_state['file_path'], 'start_times')
+                                    if times_raw is not None:
+                                        time_opts = [f"Trace {i+1} ➔ {datetime.fromtimestamp(t).strftime('%d/%m/%y %H:%M')}" for i, t in enumerate(times_raw)]
                                 except: pass
                             
                                 if len(time_opts) == dim_size:
@@ -1043,9 +1070,7 @@ def render_time_series_module(struct, section_num, section_title, y_dataset, dis
     with st.expander("X Axis Time Range", expanded=True):
         times_raw = None
         try:
-            with h5py.File(st.session_state['file_path'], 'r') as f:
-                if 'start_times' in f:
-                    times_raw = f['start_times'][:]
+            times_raw = load_h5_dataset(st.session_state['file_path'], 'start_times')
         except: pass
         
         st.markdown(f"**Traces Available:** {num_traces}")
@@ -1065,9 +1090,7 @@ def render_time_series_module(struct, section_num, section_title, y_dataset, dis
     with st.expander(f"Y Axis Distance Selection ({distance_dataset})", expanded=True):
         dist_mapping = None
         try:
-            with h5py.File(st.session_state['file_path'], 'r') as f:
-                if distance_dataset in f:
-                    dist_mapping = f[distance_dataset][:]
+            dist_mapping = load_h5_dataset(st.session_state['file_path'], distance_dataset)
         except: pass
         
         if dist_mapping is not None and len(dist_mapping) >= num_distances:
@@ -1252,6 +1275,17 @@ if 'file_path' in st.session_state:
         st.sidebar.error(f"File Error: {metadata['error']}")
         st.stop()
 
+@st.cache_data(show_spinner=False, ttl=10)
+def get_ollama_models(host_url):
+    try:
+        response = requests.get(f"{host_url.rstrip('/')}/api/tags", timeout=1.5)
+        if response.status_code == 200:
+            models_data = response.json().get("models", [])
+            return [m["name"] for m in models_data]
+    except Exception:
+        pass
+    return []
+
 # LLM Config & Metadata Sidebar
 llm_provider = "Ollama (Local)"
 api_key = None
@@ -1283,7 +1317,31 @@ with st.sidebar:
         if not api_key: st.warning("⚠️ Enter API Key to enable Gemini.")
     elif llm_provider == "Ollama (Local)":
         ollama_host = st.text_input("Ollama Host URL", value="http://localhost:11434")
-        ollama_model = st.text_input("Model Name", value="llama3")
+        
+        # Try to dynamically list models
+        available_models = get_ollama_models(ollama_host)
+        if available_models:
+            default_index = 0
+            for i, name in enumerate(available_models):
+                if "llama3.1" in name.lower() or "llama-3.1" in name.lower():
+                    default_index = i
+                    break
+                elif "llama3" in name.lower() or "llama-3" in name.lower():
+                    default_index = i
+            
+            ollama_model = st.selectbox(
+                "Model Name (Auto-detected)", 
+                available_models, 
+                index=default_index,
+                help="Select one of the models currently downloaded in Ollama."
+            )
+        else:
+            ollama_model = st.text_input(
+                "Model Name", 
+                value="llama3", 
+                help="No active models detected. Type the name of the model installed in Ollama."
+            )
+            st.warning("⚠️ Could not retrieve local models list. Make sure Ollama is running.")
 
     if metadata and "interrogator_model" in metadata:
         st.markdown("---")
