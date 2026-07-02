@@ -265,7 +265,7 @@ def get_sensor_metadata(file_path):
 
 
 # Load initial metadata
-HDF5_FILE_PATH = "Simulated_FiberTest_TSB_2km_noise_1_5.h5"
+HDF5_FILE_PATH = "HDF5_files/Simulated_FiberTest_TSB_2km_noise_1_5.h5"
 metadata = get_sensor_metadata(HDF5_FILE_PATH)
 
 if "error" in metadata:
@@ -1248,7 +1248,7 @@ def render_time_series_module(struct, section_num, section_title, y_dataset, dis
 
 # --- UNIFIED SIDEBAR ---
 st.sidebar.markdown("### 📁 1. Load File")
-uploaded_file = st.sidebar.file_uploader("Upload HDF5 File", type=['h5', 'hdf5'])
+uploaded_file = st.sidebar.file_uploader("Upload HDF5 File")
 
 if uploaded_file is not None:
     temp_path = Path("uploaded_" + uploaded_file.name)

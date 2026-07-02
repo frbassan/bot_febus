@@ -87,19 +87,15 @@ flowchart TD
 
 ## 📁 Project Structure
 
-Below is an overview of the codebase organization:
+After cleaning up obsolete files and utilities, the project is cleanly structured around 4 core Python files and organized folders:
 
-*   **[`combined_app.py`](file:///c:/Users/fabio.bassan/Desktop/frbassan_git/bot_febus/combined_app.py)**: The unified application file containing the Streamlit UI, DSP pipelines, layout tabs, Plotly configurations, and AI Assistant integration.
-*   **[`generate_tsb_febus.py`](file:///c:/Users/fabio.bassan/Desktop/frbassan_git/bot_febus/generate_tsb_febus.py)**: Physics-based data generator to create synthetic HDF5 datasets simulating fiber events, noise, and BSL calculations.
-*   **[`test_perf.py`](file:///c:/Users/fabio.bassan/Desktop/frbassan_git/bot_febus/test_perf.py)**: A lightweight script to benchmark global metadata reading and spatial profile extraction performance.
-*   **[`requirements.txt`](file:///c:/Users/fabio.bassan/Desktop/frbassan_git/bot_febus/requirements.txt)**: Python package dependencies (Streamlit, H5py, NumPy, Pandas, etc.).
-*   **Legacy / Build Scripts**:
-    *   `app.py` & `h5_viewer.py`: Original separate codebases for the AI assistant and HDF5 viewer.
-    *   `merge_script.py`: Script used to merge `app.py` and `h5_viewer.py` into the unified app.
-    *   `add_time_series.py`: Utility that appended time-series tabs (tabs 4 and 5) to `combined_app.py`.
-    *   `apply_plotly.py`: Programmatic migration from Matplotlib to interactive Plotly graphs.
-    *   `adjust_labels.py` & `adjust_dark.py`: Layout polishing scripts that customized the visual design, gridlines, axis naming, and dark/light templates.
-    *   `fix_datetime.py`: Script resolving date parsing inconsistencies in the application.
+| File / Folder | Description |
+|------|-------------|
+| **`HDF5_files/`** | Directory where all the `.hdf5` and `.h5` sensor data files should be placed for easy loading via the interface. |
+| **`combined_app.py`** | The main application logic and user interface. It is written using the Streamlit framework and contains all the code for reading `.hdf5` data, rendering the Plotly 2D/3D charts, applying DSP filters, and integrating the LLM assistant. |
+| **`run_desktop.py`** | The entry point for running the application natively on your desktop. It silently starts the Streamlit server from `combined_app.py` in the background and opens a `pywebview` window so you get a native desktop app experience without needing a browser. |
+| **`build_linux.py`** | A build script used to package the entire application into a single standalone executable using `PyInstaller`. It configures all the necessary hooks and metadata to bundle Streamlit and the desktop wrapper together. |
+| **`generate_tsb_febus.py`** | A simulation and generation script. It programmatically generates the dummy `.hdf5` test files to mimic the real output structure of a FEBUS DTSS system for testing and development purposes. |
 
 ---
 
@@ -138,7 +134,7 @@ The app includes interactive scipy-based filtering tabs for 2D profile graphs:
 4.  **Median Filter**: Replaces samples with their neighborhood median to reject short-lived sensor spikes.
 
 ### Synthetic Data Generation
-[`generate_tsb_febus.py`](file:///c:/Users/fabio.bassan/Desktop/frbassan_git/bot_febus/generate_tsb_febus.py) creates physical events on the fiber using a Gaussian kernel:
+`generate_tsb_febus.py` creates physical events on the fiber using a Gaussian kernel:
 $$\text{Event}(x) = A \cdot f(t) \cdot \exp\left(-0.5 \cdot \left(\frac{x - x_{\text{center}}}{\sigma}\right)^2\right)$$
 where $A$ is the amplitude, $f(t)$ represents the temporal evolution factor (sinusoidal, linear, or peak), and $\sigma$ represents the event width. 
 It then calculates the corresponding Brillouin Frequency Shift:
@@ -157,21 +153,31 @@ pip install -r requirements.txt scipy
 ```
 
 ### 2. Generate Simulated Data (Optional)
-If you do not have a real FEBUS HDF5 file, run the physics simulator to build a 2km synthetic dataset:
+If you do not have a real FEBUS HDF5 file, run the physics simulator to build a synthetic dataset. The resulting file will be placed in your root, which you can move to `HDF5_files/`:
 
 ```bash
 python generate_tsb_febus.py
 ```
-This generates `Simulated_FiberTest_TSB_2km_0.1m_res_noise_1_5.h5`.
 
 ### 3. Run the Dashboard
-Launch the unified Streamlit application:
 
+**Option A: Native Desktop App (Recommended)**
+To run the application natively in a standalone window without opening your browser:
+```bash
+python run_desktop.py
+```
+
+**Option B: Compiled Linux Executable**
+If you have built the executable via `build_linux.py`, you can run the standalone binary directly:
+```bash
+./dist/FEBUS_Viewer
+```
+
+**Option C: Standard Web Browser**
+Launch the classic Streamlit web application:
 ```bash
 streamlit run combined_app.py
 ```
-
-Open `http://localhost:8501` in your browser.
 
 ---
 
