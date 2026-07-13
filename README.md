@@ -164,7 +164,7 @@ python generate_tsb_febus.py
 **Option A: Native Desktop App (Recommended)**
 To run the application natively in a standalone window without opening your browser:
 ```bash
-python run_desktop.py
+python3 run_desktop.py
 ```
 
 **Option B: Compiled Linux Executable**
@@ -186,3 +186,10 @@ Under the **Intelligent Assistant** tab, configure the desired backend in the si
 1.  **Rules (Local/Fast)**: Regular expression parsing. Fast and requires no API keys or servers.
 2.  **Google Gemini**: Highly capable generative AI parsing. Requires a `GEMINI_API_KEY` (configured via sidebar or a `.env` file).
 3.  **Ollama (Local)**: Queries a locally run Ollama model (e.g. `llama3` or `mistral`) at `http://localhost:11434`.
+
+---
+
+## ⚠️ Troubleshooting
+
+*   **"Internal Server Error" on Desktop App**: If you launch the desktop app and encounter an "Internal Server Error", a ghost/zombie process from a previous run might be locking port `8501`. 
+    *   **Fix (Linux/macOS)**: Run `lsof -i :8501` to find the process ID (PID) occupying the port, then run `kill -9 <PID>`.

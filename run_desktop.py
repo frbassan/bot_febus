@@ -25,7 +25,7 @@ def run_streamlit():
             "--server.port", "8501",
             "--browser.gatherUsageStats", "false"
         ]
-    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.Popen(cmd)
 
 if __name__ == '__main__':
     # PYINSTALLER TRICK: Intercept subprocess call to run Streamlit
